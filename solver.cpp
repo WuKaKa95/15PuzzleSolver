@@ -3,7 +3,7 @@ using namespace std;
 using Clock = chrono::steady_clock;
 
 // Bail-out thresholds to prevent unbounded memory/time
-static constexpr long long MAX_VISITS     = 50'000'000LL;
+static constexpr long long MAX_VISITS     = 15'000'000LL;
 static constexpr size_t    MAX_OPEN_SIZE = 10'000'000;
 
 // Called when operator new fails
@@ -207,10 +207,9 @@ bool bidirectionalAStar(
     long long visited = 0, generated = 0;
     auto startTime = Clock::now();
 
-    // === NEW: best‐μ tracking ===
+    // Best‐μ tracking
     long long mu = LLONG_MAX;
     shared_ptr<Node> bestF = nullptr, bestB = nullptr;
-    // ===============================
 
     while (!frontierForward.empty() && !frontierBackward.empty()) {
         bool expandForward = frontierForward.size() <= frontierBackward.size();
@@ -252,7 +251,7 @@ bool bidirectionalAStar(
             }
         }
 
-        // === NEW: record any meeting state and update μ ===
+        // Record any meeting state and update μ
         if (gOtherSide.count(key)) {
             long long candidate = currentNode->gCost + gOtherSide[key];
             if (candidate < mu) {
@@ -265,7 +264,7 @@ bool bidirectionalAStar(
                     bestB = currentNode;
                 }
                 // Prune forward frontier
-                {
+                if (expandForward) {
                     vector<shared_ptr<Node>> survivors;
                     while (!frontierForward.empty()) {
                         auto n = frontierForward.top(); frontierForward.pop();
@@ -274,7 +273,7 @@ bool bidirectionalAStar(
                     for (auto &n : survivors) frontierForward.push(n);
                 }
                 // Prune backward frontier
-                {
+                else {
                     vector<shared_ptr<Node>> survivors;
                     while (!frontierBackward.empty()) {
                         auto n = frontierBackward.top(); frontierBackward.pop();
@@ -344,7 +343,7 @@ bool bidirectionalAStar(
         }
     }
 
-    // === NEW: reconstruct using bestF & bestB if we found μ ===
+    // Reconstruct using bestF & bestB
     if (mu < LLONG_MAX && bestF && bestB) {
         // Reconstruct forward half
         vector<vector<int>> pathF;
@@ -430,13 +429,16 @@ int main(int argc, char** argv) {
     function<int(const vector<int>&)> heuristicForward, heuristicBackward;
 
     if (heuristicName == "hamming") {
-        heuristicForward  = [&](auto& b){ return forwardHelper.hamming(b); };
-        heuristicBackward = [&](auto& b){ return backwardHelper.hamming(b); };
-        cerr << "Hamming\n";
+        heuristicForward  = [&](const vector<int>& b) { return forwardHelper.hamming(b); };
+        heuristicBackward = [&](const vector<int>& b) { return backwardHelper.hamming(b); };
+        cerr << "Hamming heuristic.\n";
+    } else if (heuristicName == "manhattan") {
+        heuristicForward  = [&](const vector<int>& b) { return forwardHelper.combined(b); };
+        heuristicBackward = [&](const vector<int>& b) { return backwardHelper.combined(b); };
+        cerr << "Manhattan + Linear Conflict (combined) heuristic.\n";
     } else {
-        heuristicForward  = [&](auto& b){ return forwardHelper.combined(b); };
-        heuristicBackward = [&](auto& b){ return backwardHelper.combined(b); };
-        cerr << "Manhattan + LinearConflict\n";
+        cerr << "[SOLVER] Unknown heuristic: " << heuristicName << "\n";
+        return 1;
     }
 
     cerr << "[SOLVER] Start board:\n";
