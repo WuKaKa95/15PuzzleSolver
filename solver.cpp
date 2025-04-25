@@ -240,12 +240,16 @@ bool bidirectionalAStar(
             cout << "no_solution\n";
             return false;
         }
-        if (frontierForward.size() + frontierBackward.size()
-          > MAX_OPEN_SIZE)
-        {
-            cerr << "[SOLVER] Aborting: open-queue too large\n";
-            cout << "no_solution\n";
-            return false;
+        if (frontierForward.size() + frontierBackward.size() > MAX_OPEN_SIZE) {
+            cerr << "[SOLVER] Open‐queue too large – ";
+            if (mu < LLONG_MAX && bestF && bestB) {
+                cerr << "finishing with best meeting point\n";
+                break;
+            } else {
+                cerr << "aborting cleanly\n";
+                cout  << "no_solution\n";
+                return false;
+            }
         }
 
         // === NEW: record any meeting state and update μ ===

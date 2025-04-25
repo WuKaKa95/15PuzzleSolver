@@ -108,7 +108,7 @@ def run_once(board, heuristic):
     return stats
 
 if __name__=='__main__':
-    trials = 500
+    trials = 50
     outdir = 'plots'
     os.makedirs(outdir, exist_ok=True)
 
