@@ -270,23 +270,45 @@ bool bidirectionalAStar(
         }
 
         // Expand neighbors
-        int blankRow = currentNode->blankPos / boardSize;
+        int blankRow    = currentNode->blankPos / boardSize;
         int blankColumn = currentNode->blankPos % boardSize;
-        for (int dir = 0; dir < 4; ++dir) {
-            int nr = blankRow + dRow[dir], nc = blankColumn + dCol[dir];
-            if (nr<0||nr>=boardSize||nc<0||nc>=boardSize) continue;
-            int nb = nr * boardSize + nc;
-            auto nbBoard = currentNode->board;
-            swap(nbBoard[currentNode->blankPos], nbBoard[nb]);
 
-            string nKey = boardToKey(nbBoard);
-            int g2 = currentNode->gCost + 1;
-            if (!gThisSide.count(nKey) || g2 < gThisSide[nKey]) {
-                gThisSide[nKey] = g2;
-                int f2 = g2 + heuristic(nbBoard);
-                auto nbNode = make_shared<Node>(Node{nbBoard, nb, g2, f2, currentNode});
-                nodeMapThis[nKey] = nbNode;
-                frontier.push(nbNode);
+        for (int dir = 0; dir < 4; ++dir) {
+            int newRow = blankRow + dRow[dir];
+            int newCol = blankColumn + dCol[dir];
+            if (newRow < 0 || newRow >= boardSize
+             || newCol < 0 || newCol >= boardSize) {
+                continue;
+             }
+
+            int neighborBlank = newRow * boardSize + newCol;
+            auto neighborBoard = currentNode->board;
+            swap(neighborBoard[currentNode->blankPos],
+                 neighborBoard[neighborBlank]);
+
+            string neighborKey = boardToKey(neighborBoard);
+            int tentativeG = currentNode->gCost + 1;
+
+            // only consider if this gives a better g-score
+            if (!gThisSide.count(neighborKey)
+             || tentativeG < gThisSide[neighborKey])
+            {
+                int fCost = tentativeG + heuristic(neighborBoard);
+
+                // Never enqueue any node whose fCost cannot beat mu
+                if (fCost >= mu) {
+                    continue;
+                }
+
+                gThisSide[neighborKey] = tentativeG;
+                auto neighborNode = make_shared<Node>(
+                    Node{neighborBoard,
+                         neighborBlank,
+                         tentativeG,
+                         fCost,
+                         currentNode});
+                nodeMapThis[neighborKey] = neighborNode;
+                frontier.push(neighborNode);
                 ++generated;
             }
         }
