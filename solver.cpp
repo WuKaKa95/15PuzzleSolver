@@ -103,7 +103,7 @@ int linearConflict(const vector<int>& board) {
     return 2 * conflicts;
 }
 
-// Combined heuristic: Manhattan + linear-conflict penalty
+// Combined heuristic: Manhattan plus linear-conflict penalty
 int manhattanWithLinearConflict(const vector<int>& board) {
     return manhattanDistance(board) + linearConflict(board);
 }
@@ -196,8 +196,7 @@ bool bidirectionalAStar(
     auto startTime = Clock::now();
 
     while (!frontierForward.empty() && !frontierBackward.empty()) {
-        bool expandForward = frontierForward.size()
-                           <= frontierBackward.size();
+        bool expandForward = frontierForward.size() <= frontierBackward.size();
 
         auto &frontier     = expandForward ? frontierForward
                                           : frontierBackward;
@@ -208,7 +207,8 @@ bool bidirectionalAStar(
         auto &closedThis   = expandForward ? closedForward
                                           : closedBackward;
 
-        auto currentNode = frontier.top(); frontier.pop();
+        auto currentNode = frontier.top();
+        frontier.pop();
         string key = boardToKey(currentNode->board);
 
         // Skip stale or already closed
@@ -237,6 +237,7 @@ bool bidirectionalAStar(
         if (gOtherSide.count(key)) {
             // Reconstruct path from start to meeting point
             vector<vector<int>> pathFromStart;
+            // Following parent pointers until root with parent = nullptr
             for (auto p = currentNode; p; p = p->parent) {
                 pathFromStart.push_back(p->board);
             }
@@ -254,7 +255,10 @@ bool bidirectionalAStar(
             for (size_t i = 1; i < pathFromGoal.size(); ++i) {
                 fullPath.push_back(pathFromGoal[i]);
             }
-
+            // If the meet occurred while going backwards, reverse the list to get start -> finish printing,
+            // not the other way around
+            if (!expandForward)
+                reverse(fullPath.begin(), fullPath.end());
             // Output solution steps
             auto endTime = Clock::now();
             double elapsed = chrono::duration<double>(
@@ -276,16 +280,16 @@ bool bidirectionalAStar(
         }
 
         // Expand neighbors
-        int r = currentNode->blankPos / boardSize;
-        int c = currentNode->blankPos % boardSize;
+        int blankRow = currentNode->blankPos / boardSize;
+        int blankColumn = currentNode->blankPos % boardSize;
         for (int dir = 0; dir < 4; ++dir) {
-            int nr = r + dRow[dir], nc = c + dCol[dir];
-            if (nr < 0 || nr >= boardSize
-             || nc < 0 || nc >= boardSize)
+            int blankNewRow = blankRow + dRow[dir], blankNewColumn = blankColumn + dCol[dir];
+            if (blankNewRow < 0 || blankNewRow >= boardSize
+             || blankNewColumn < 0 || blankNewColumn >= boardSize)
             {
                 continue;
             }
-            int neighborBlank = nr * boardSize + nc;
+            int neighborBlank = blankNewRow * boardSize + blankNewColumn;
             auto neighborBoard = currentNode->board;
             swap(neighborBoard[currentNode->blankPos],
                  neighborBoard[neighborBlank]);
