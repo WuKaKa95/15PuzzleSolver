@@ -34,79 +34,96 @@ void printBoard(const vector<int>& board, int size, ostream& os) {
     }
 }
 
-// Hamming distance: count of tiles out of place
-int hammingDistance(const vector<int>& board) {
-    int count = 0;
-    for (int i = 0; i < (int)board.size(); ++i) {
-        if (board[i] != 0 && board[i] != i + 1) {
-            ++count;
+struct HeuristicHelper {
+    vector<int> targetPositions;
+    int size;
+
+    HeuristicHelper(const vector<int>& targetBoard)
+        : size(sqrt(targetBoard.size()))
+    {
+        int total = size * size;
+        targetPositions.resize(total + 1); // +1 to handle tile values up to total
+        for (int i = 0; i < total; ++i) {
+            int tile = targetBoard[i];
+            targetPositions[tile] = i;
         }
     }
-    return count;
-}
 
-// Manhattan distance: sum of tile distances to goal positions
-int manhattanDistance(const vector<int>& board) {
-    int total = 0;
-    int size = sqrt(board.size());
-    for (int i = 0; i < (int)board.size(); ++i) {
-        int tile = board[i];
-        if (tile == 0) continue;
-        int goalIndex = tile - 1;
-        total += abs(i / size - goalIndex / size)
-               + abs(i % size - goalIndex % size);
-    }
-    return total;
-}
-
-// Linear conflict: extra penalty for two tiles in same row/col in reverse order
-int linearConflict(const vector<int>& board) {
-    int size = sqrt(board.size());
-    int conflicts = 0;
-
-    // Row conflicts
-    for (int r = 0; r < size; ++r) {
-        vector<int> rowTiles;
-        for (int c = 0; c < size; ++c) {
-            int tile = board[r * size + c];
-            if (tile != 0 && (tile - 1) / size == r) {
-                rowTiles.push_back(tile - 1);
+    int hamming(const vector<int>& board) const {
+        int count = 0;
+        for (int i = 0; i < (int)board.size(); ++i) {
+            int tile = board[i];
+            if (tile != 0 && targetPositions[tile] != i) {
+                ++count;
             }
         }
-        for (int i = 0; i < (int)rowTiles.size(); ++i) {
-            for (int j = i + 1; j < (int)rowTiles.size(); ++j) {
-                if (rowTiles[i] % size > rowTiles[j] % size) {
-                    ++conflicts;
-                }
-            }
-        }
+        return count;
     }
 
-    // Column conflicts
-    for (int c = 0; c < size; ++c) {
-        vector<int> colTiles;
+    int manhattan(const vector<int>& board) const {
+        int total = 0;
+        for (int i = 0; i < (int)board.size(); ++i) {
+            int tile = board[i];
+            if (tile == 0) continue;
+            int goalIndex = targetPositions[tile];
+            total += abs(i / size - goalIndex / size)
+                   + abs(i % size - goalIndex % size);
+        }
+        return total;
+    }
+
+    int linearConflict(const vector<int>& board) const {
+        int conflicts = 0;
+
+        // Row conflicts
         for (int r = 0; r < size; ++r) {
-            int tile = board[r * size + c];
-            if (tile != 0 && (tile - 1) % size == c) {
-                colTiles.push_back(tile - 1);
+            vector<int> rowTiles;
+            for (int c = 0; c < size; ++c) {
+                int pos = r * size + c;
+                int tile = board[pos];
+                if (tile == 0) continue;
+                int targetRow = targetPositions[tile] / size;
+                if (targetRow == r) {
+                    rowTiles.push_back(targetPositions[tile]);
+                }
             }
-        }
-        for (int i = 0; i < (int)colTiles.size(); ++i) {
-            for (int j = i + 1; j < (int)colTiles.size(); ++j) {
-                if (colTiles[i] / size > colTiles[j] / size) {
-                    ++conflicts;
+            for (int i = 0; i < (int)rowTiles.size(); ++i) {
+                for (int j = i + 1; j < (int)rowTiles.size(); ++j) {
+                    if (rowTiles[i] % size > rowTiles[j] % size) {
+                        ++conflicts;
+                    }
                 }
             }
         }
+
+        // Column conflicts
+        for (int c = 0; c < size; ++c) {
+            vector<int> colTiles;
+            for (int r = 0; r < size; ++r) {
+                int pos = r * size + c;
+                int tile = board[pos];
+                if (tile == 0) continue;
+                int targetCol = targetPositions[tile] % size;
+                if (targetCol == c) {
+                    colTiles.push_back(targetPositions[tile]);
+                }
+            }
+            for (int i = 0; i < (int)colTiles.size(); ++i) {
+                for (int j = i + 1; j < (int)colTiles.size(); ++j) {
+                    if (colTiles[i] / size > colTiles[j] / size) {
+                        ++conflicts;
+                    }
+                }
+            }
+        }
+
+        return 2 * conflicts;
     }
 
-    return 2 * conflicts;
-}
-
-// Combined heuristic: Manhattan plus linear-conflict penalty
-int manhattanWithLinearConflict(const vector<int>& board) {
-    return manhattanDistance(board) + linearConflict(board);
-}
+    int combined(const vector<int>& board) const {
+        return manhattan(board) + linearConflict(board);
+    }
+};
 
 // Check if a board configuration is solvable
 bool isSolvable(const vector<int>& board) {
@@ -155,7 +172,8 @@ struct Node {
 bool bidirectionalAStar(
     const vector<int>& startBoard,
     int boardSize,
-    function<int(const vector<int>&)> heuristic)
+    const function<int(const vector<int>&)>& heuristicForward,
+    const function<int(const vector<int>&)>& heuristicBackward)
 {
     int total = boardSize * boardSize;
     // Goal state: [1,2,...,N*N-1,0]
@@ -177,7 +195,7 @@ bool bidirectionalAStar(
                    - startBoard.begin();
     auto rootF = make_shared<Node>(
         Node{startBoard, startBlank, 0,
-             heuristic(startBoard), nullptr});
+             heuristicForward(startBoard), nullptr});
     frontierForward.push(rootF);
     gScoreF[boardToKey(startBoard)] = 0;
     nodeMapF[boardToKey(startBoard)] = rootF;
@@ -186,7 +204,7 @@ bool bidirectionalAStar(
     int goalBlank = total - 1;
     auto rootB = make_shared<Node>(
         Node{goalBoard, goalBlank, 0,
-             heuristic(goalBoard), nullptr});
+             heuristicBackward(goalBoard), nullptr});
     frontierBackward.push(rootB);
     gScoreB[boardToKey(goalBoard)] = 0;
     nodeMapB[boardToKey(goalBoard)] = rootB;
@@ -206,6 +224,7 @@ bool bidirectionalAStar(
         auto &nodeMapOther = expandForward ? nodeMapB : nodeMapF;
         auto &closedThis   = expandForward ? closedForward
                                           : closedBackward;
+        auto &heurestic    = expandForward ? heuristicForward : heuristicBackward;
 
         auto currentNode = frontier.top();
         frontier.pop();
@@ -237,7 +256,6 @@ bool bidirectionalAStar(
         if (gOtherSide.count(key)) {
             // Reconstruct path from start to meeting point
             vector<vector<int>> pathFromStart;
-            // Following parent pointers until root with parent = nullptr
             for (auto p = currentNode; p; p = p->parent) {
                 pathFromStart.push_back(p->board);
             }
@@ -250,15 +268,22 @@ bool bidirectionalAStar(
                 pathFromGoal.push_back(p->board);
             }
 
-            // Combine into full solution path
-            vector<vector<int>> fullPath = pathFromStart;
-            for (size_t i = 1; i < pathFromGoal.size(); ++i) {
-                fullPath.push_back(pathFromGoal[i]);
+            // Correct backward path direction
+            if (!expandForward) {
+                reverse(pathFromGoal.begin(), pathFromGoal.end()); // Now pathFromGoal is [start -> ... -> meet]
+                reverse(pathFromStart.begin(), pathFromStart.end()); // Now pathFromStart is [meet -> ... -> goal]
             }
-            // If the meet occurred while going backwards, reverse the list to get start -> finish printing,
-            // not the other way around
-            if (!expandForward)
-                reverse(fullPath.begin(), fullPath.end());
+
+            // Combine paths and remove duplicate meet node
+            vector<vector<int>> fullPath;
+            if (expandForward) {
+                fullPath = pathFromStart;
+                fullPath.insert(fullPath.end(), pathFromGoal.begin() + 1, pathFromGoal.end());
+            } else {
+                fullPath = pathFromGoal; // start -> meet
+                fullPath.insert(fullPath.end(), pathFromStart.begin() + 1, pathFromStart.end()); // meet -> goal
+            }
+
             // Output solution steps
             auto endTime = Clock::now();
             double elapsed = chrono::duration<double>(
@@ -301,7 +326,7 @@ bool bidirectionalAStar(
              || tentativeG < gThisSide[neighborKey])
             {
                 gThisSide[neighborKey] = tentativeG;
-                int fCost = tentativeG + heuristic(neighborBoard);
+                int fCost = tentativeG + heurestic(neighborBoard);
                 auto neighborNode = make_shared<Node>(
                     Node{neighborBoard,
                          neighborBlank,
@@ -364,13 +389,25 @@ int main(int argc, char** argv) {
 
     totalTiles = boardSize * boardSize;
     cerr << "[SOLVER] Bidirectional A* with ";
-    function<int(const vector<int>&)> heuristicFunction;
+
+    // Prepare goal board
+    vector<int> goalBoard(totalTiles);
+    iota(goalBoard.begin(), goalBoard.end(), 1);
+    goalBoard.back() = 0;
+
+    // Create heuristic helpers
+    HeuristicHelper forwardHelper(goalBoard);
+    HeuristicHelper backwardHelper(startBoard);
+
+    function<int(const vector<int>&)> heuristicForward, heuristicBackward;
 
     if (heuristicName == "hamming") {
-        heuristicFunction = hammingDistance;
+        heuristicForward = [forwardHelper](const vector<int>& b) { return forwardHelper.hamming(b); };
+        heuristicBackward = [backwardHelper](const vector<int>& b) { return backwardHelper.hamming(b); };
         cerr << "Hamming\n";
     } else {
-        heuristicFunction = manhattanWithLinearConflict;
+        heuristicForward = [forwardHelper](const vector<int>& b) { return forwardHelper.combined(b); };
+        heuristicBackward = [backwardHelper](const vector<int>& b) { return backwardHelper.combined(b); };
         cerr << "Manhattan + LinearConflict\n";
     }
 
@@ -388,6 +425,6 @@ int main(int argc, char** argv) {
     }
 
     bool solved = bidirectionalAStar(
-        startBoard, boardSize, heuristicFunction);
+        startBoard, boardSize, heuristicForward, heuristicBackward);
     return solved ? 0 : 1;
 }
