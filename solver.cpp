@@ -260,6 +260,24 @@ bool bidirectionalAStar(
                     bestF = nodeMapOther[key];
                     bestB = currentNode;
                 }
+                // Prune forward frontier
+                {
+                    vector<shared_ptr<Node>> survivors;
+                    while (!frontierForward.empty()) {
+                        auto n = frontierForward.top(); frontierForward.pop();
+                        if (n->fCost < mu) survivors.push_back(n);
+                    }
+                    for (auto &n : survivors) frontierForward.push(n);
+                }
+                // Prune backward frontier
+                {
+                    vector<shared_ptr<Node>> survivors;
+                    while (!frontierBackward.empty()) {
+                        auto n = frontierBackward.top(); frontierBackward.pop();
+                        if (n->fCost < mu) survivors.push_back(n);
+                    }
+                    for (auto &n : survivors) frontierBackward.push(n);
+                }
             }
         }
         // Check A* stopping criterion
