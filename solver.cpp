@@ -1,4 +1,3 @@
-// solver.cpp
 #include <bits/stdc++.h>
 using namespace std;
 using Clock = chrono::steady_clock;
@@ -74,7 +73,6 @@ struct HeuristicHelper {
 
     int linearConflict(const vector<int>& board) const {
         int conflicts = 0;
-
         // Row conflicts
         for (int r = 0; r < size; ++r) {
             vector<int> rowTiles;
@@ -129,7 +127,6 @@ struct HeuristicHelper {
 bool isSolvable(const vector<int>& board) {
     int size = sqrt(board.size());
     int inversions = 0;
-
     for (int i = 0; i < (int)board.size(); ++i) {
         if (board[i] == 0) continue;
         for (int j = i + 1; j < (int)board.size(); ++j) {
@@ -138,7 +135,6 @@ bool isSolvable(const vector<int>& board) {
             }
         }
     }
-
     if (size % 2 == 1) {
         return inversions % 2 == 0;
     } else {
@@ -176,12 +172,10 @@ bool bidirectionalAStar(
     const function<int(const vector<int>&)>& heuristicBackward)
 {
     int total = boardSize * boardSize;
-    // Goal state: [1,2,...,N*N-1,0]
     vector<int> goalBoard(total);
     iota(goalBoard.begin(), goalBoard.end(), 1);
     goalBoard.back() = 0;
 
-    // Min-heap ordered by lowest fCost
     auto cmp = [](auto &a, auto &b){ return a->fCost > b->fCost; };
     priority_queue<shared_ptr<Node>, vector<shared_ptr<Node>>, decltype(cmp)>
         frontierForward(cmp), frontierBackward(cmp);
@@ -213,18 +207,21 @@ bool bidirectionalAStar(
     long long visited = 0, generated = 0;
     auto startTime = Clock::now();
 
+    // === NEW: best‐μ tracking ===
+    long long mu = LLONG_MAX;
+    shared_ptr<Node> bestF = nullptr, bestB = nullptr;
+    // ===============================
+
     while (!frontierForward.empty() && !frontierBackward.empty()) {
         bool expandForward = frontierForward.size() <= frontierBackward.size();
 
-        auto &frontier     = expandForward ? frontierForward
-                                          : frontierBackward;
+        auto &frontier     = expandForward ? frontierForward: frontierBackward;
         auto &gThisSide    = expandForward ? gScoreF : gScoreB;
         auto &gOtherSide   = expandForward ? gScoreB : gScoreF;
         auto &nodeMapThis  = expandForward ? nodeMapF : nodeMapB;
         auto &nodeMapOther = expandForward ? nodeMapB : nodeMapF;
-        auto &closedThis   = expandForward ? closedForward
-                                          : closedBackward;
-        auto &heurestic    = expandForward ? heuristicForward : heuristicBackward;
+        auto &closedThis   = expandForward ? closedForward: closedBackward;
+        auto &heuristic    = expandForward ? heuristicForward : heuristicBackward;
 
         auto currentNode = frontier.top();
         frontier.pop();
@@ -238,7 +235,6 @@ bool bidirectionalAStar(
         }
         closedThis.insert(key);
 
-        // Bail-out conditions
         if (++visited > MAX_VISITS) {
             cerr << "[SOLVER] Aborting: too many visits\n";
             cout << "no_solution\n";
@@ -252,94 +248,49 @@ bool bidirectionalAStar(
             return false;
         }
 
-        // Meet‐in‐the‐middle check
+        // === NEW: record any meeting state and update μ ===
         if (gOtherSide.count(key)) {
-            // Reconstruct path from start to meeting point
-            vector<vector<int>> pathFromStart;
-            for (auto p = currentNode; p; p = p->parent) {
-                pathFromStart.push_back(p->board);
+            long long candidate = currentNode->gCost + gOtherSide[key];
+            if (candidate < mu) {
+                mu = candidate;
+                if (expandForward) {
+                    bestF = currentNode;
+                    bestB = nodeMapOther[key];
+                } else {
+                    bestF = nodeMapOther[key];
+                    bestB = currentNode;
+                }
             }
-            reverse(pathFromStart.begin(), pathFromStart.end());
-
-            // Reconstruct path from goal to meeting point
-            auto meetNode = nodeMapOther[key];
-            vector<vector<int>> pathFromGoal;
-            for (auto p = meetNode; p; p = p->parent) {
-                pathFromGoal.push_back(p->board);
-            }
-
-            // Correct backward path direction
-            if (!expandForward) {
-                reverse(pathFromGoal.begin(), pathFromGoal.end()); // Now pathFromGoal is [start -> ... -> meet]
-                reverse(pathFromStart.begin(), pathFromStart.end()); // Now pathFromStart is [meet -> ... -> goal]
-            }
-
-            // Combine paths and remove duplicate meet node
-            vector<vector<int>> fullPath;
-            if (expandForward) {
-                fullPath = pathFromStart;
-                fullPath.insert(fullPath.end(), pathFromGoal.begin() + 1, pathFromGoal.end());
-            } else {
-                fullPath = pathFromGoal; // start -> meet
-                fullPath.insert(fullPath.end(), pathFromStart.begin() + 1, pathFromStart.end()); // meet -> goal
-            }
-
-            // Output solution steps
-            auto endTime = Clock::now();
-            double elapsed = chrono::duration<double>(
-                                 endTime - startTime).count();
-
-            cout << "solution:\n";
-            for (size_t step = 0; step < fullPath.size(); ++step) {
-                cout << "Step " << step << ":\n";
-                printBoard(fullPath[step], boardSize, cout);
-                cout << "\n";
-            }
-            cout << "visited:   " << visited << "\n"
-                 << "generated: " << generated << "\n"
-                 << "path_length: " << fullPath.size() - 1 << "\n"
-                 << "time_s:    " << fixed << setprecision(3)
-                                  << elapsed << "\n";
-            cerr << "[SOLVER] Done (bidirectional).\n";
-            return true;
+        }
+        // Check A* stopping criterion
+        long long fFstar = frontierForward.empty()  ? LLONG_MAX : frontierForward.top()->fCost;
+        long long fBstar = frontierBackward.empty() ? LLONG_MAX : frontierBackward.top()->fCost;
+        if (min(fFstar, fBstar) >= mu) {
+            break;
         }
 
         // Expand neighbors
         int blankRow = currentNode->blankPos / boardSize;
         int blankColumn = currentNode->blankPos % boardSize;
         for (int dir = 0; dir < 4; ++dir) {
-            int blankNewRow = blankRow + dRow[dir], blankNewColumn = blankColumn + dCol[dir];
-            if (blankNewRow < 0 || blankNewRow >= boardSize
-             || blankNewColumn < 0 || blankNewColumn >= boardSize)
-            {
-                continue;
-            }
-            int neighborBlank = blankNewRow * boardSize + blankNewColumn;
-            auto neighborBoard = currentNode->board;
-            swap(neighborBoard[currentNode->blankPos],
-                 neighborBoard[neighborBlank]);
+            int nr = blankRow + dRow[dir], nc = blankColumn + dCol[dir];
+            if (nr<0||nr>=boardSize||nc<0||nc>=boardSize) continue;
+            int nb = nr * boardSize + nc;
+            auto nbBoard = currentNode->board;
+            swap(nbBoard[currentNode->blankPos], nbBoard[nb]);
 
-            string neighborKey = boardToKey(neighborBoard);
-            int tentativeG = currentNode->gCost + 1;
-
-            if (!gThisSide.count(neighborKey)
-             || tentativeG < gThisSide[neighborKey])
-            {
-                gThisSide[neighborKey] = tentativeG;
-                int fCost = tentativeG + heurestic(neighborBoard);
-                auto neighborNode = make_shared<Node>(
-                    Node{neighborBoard,
-                         neighborBlank,
-                         tentativeG,
-                         fCost,
-                         currentNode});
-                nodeMapThis[neighborKey] = neighborNode;
-                frontier.push(neighborNode);
+            string nKey = boardToKey(nbBoard);
+            int g2 = currentNode->gCost + 1;
+            if (!gThisSide.count(nKey) || g2 < gThisSide[nKey]) {
+                gThisSide[nKey] = g2;
+                int f2 = g2 + heuristic(nbBoard);
+                auto nbNode = make_shared<Node>(Node{nbBoard, nb, g2, f2, currentNode});
+                nodeMapThis[nKey] = nbNode;
+                frontier.push(nbNode);
                 ++generated;
             }
         }
 
-        // Periodic progress log
         if (visited % 100000 == 0) {
             cerr << "[SOLVER] visited=" << visited
                  << " generated=" << generated
@@ -347,6 +298,40 @@ bool bidirectionalAStar(
                  << " frontierB=" << frontierBackward.size()
                  << "\n";
         }
+    }
+
+    // === NEW: reconstruct using bestF & bestB if we found μ ===
+    if (mu < LLONG_MAX && bestF && bestB) {
+        // Reconstruct forward half
+        vector<vector<int>> pathF;
+        for (auto p = bestF; p; p = p->parent)
+            pathF.push_back(p->board);
+        reverse(pathF.begin(), pathF.end());
+
+        // Reconstruct backward half
+        vector<vector<int>> pathB;
+        for (auto p = bestB; p; p = p->parent)
+            pathB.push_back(p->board);
+
+        // Stitch & remove duplicate meeting state
+        vector<vector<int>> fullPath = pathF;
+        fullPath.insert(fullPath.end(), pathB.begin() + 1, pathB.end());
+
+        // Output solution steps
+        auto endTime = Clock::now();
+        double elapsed = chrono::duration<double>(endTime - startTime).count();
+        cout << "solution:\n";
+        for (size_t i = 0; i < fullPath.size(); ++i) {
+            cout << "Step " << i << ":\n";
+            printBoard(fullPath[i], boardSize, cout);
+            cout << "\n";
+        }
+        cout << "visited:   " << visited << "\n"
+             << "generated: " << generated << "\n"
+             << "path_length: " << fullPath.size() - 1 << "\n"
+             << "time_s:    " << fixed << setprecision(3) << elapsed << "\n";
+        cerr << "[SOLVER] Done (optimal bidir‐A*).\n";
+        return true;
     }
 
     // No solution found
@@ -382,9 +367,8 @@ int main(int argc, char** argv) {
         boardSize     = stoi(argv[2]);
         totalTiles    = boardSize * boardSize;
         startBoard.resize(totalTiles);
-        for (int i = 0; i < totalTiles; ++i) {
+        for (int i = 0; i < totalTiles; ++i)
             startBoard[i] = stoi(argv[3 + i]);
-        }
     }
 
     totalTiles = boardSize * boardSize;
@@ -402,12 +386,12 @@ int main(int argc, char** argv) {
     function<int(const vector<int>&)> heuristicForward, heuristicBackward;
 
     if (heuristicName == "hamming") {
-        heuristicForward = [forwardHelper](const vector<int>& b) { return forwardHelper.hamming(b); };
-        heuristicBackward = [backwardHelper](const vector<int>& b) { return backwardHelper.hamming(b); };
+        heuristicForward  = [&](auto& b){ return forwardHelper.hamming(b); };
+        heuristicBackward = [&](auto& b){ return backwardHelper.hamming(b); };
         cerr << "Hamming\n";
     } else {
-        heuristicForward = [forwardHelper](const vector<int>& b) { return forwardHelper.combined(b); };
-        heuristicBackward = [backwardHelper](const vector<int>& b) { return backwardHelper.combined(b); };
+        heuristicForward  = [&](auto& b){ return forwardHelper.combined(b); };
+        heuristicBackward = [&](auto& b){ return backwardHelper.combined(b); };
         cerr << "Manhattan + LinearConflict\n";
     }
 
